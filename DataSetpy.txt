@@ -1,0 +1,71 @@
+Why do we need dataset.py?
+
+Right now, your data is just files on disk:
+-------------------------------------------------------
+Dataset:
+├── images/
+│   ├── 001.jpg
+│   ├── 002.jpg
+│   └── 003.jpg
+└── captions/
+    ├── 001.txt
+    ├── 002.txt
+    └── 003.txt
+-------------------------------------------------------
+The model cannot read folders.
+It needs data in memory in a structured format.
+So we need something that tells PyTorch:
+-------------------------------------------------------
+Give me image #1
+↓
+Load image
+↓
+Load caption
+↓
+Convert image to tensor
+↓
+Return both
+-------------------------------------------------------
+This is exactly what dataset.py does
+
+FLOW:
+-------------------------------------------------------
+Folders
+   │
+   ▼
+dataset.py
+   │
+   ▼
+PyTorch DataLoader
+   │
+   ▼
+Training Loop
+-------------------------------------------------------
+Without dataset.py, the training loop has no idea where your images are.
+
+What is a Dataset in PyTorch?
+Think of it like a database. Instead of SQL:
+-------------------------------------------------------
+SELECT * FROM images WHERE id = 5
+-------------------------------------------------------
+PyTorch does: dataset[5]
+and expects:
+{
+    "image": ...,
+    "caption": ...
+}
+-------------------------------------------------------
+
+
+Our Goal
+When we write:
+-------------------------------------------------------
+dataset[0]
+-------------------------------------------------------
+we want:
+
+{
+    "image": Tensor(...),
+    "caption": "A man wearing a dark coat..."
+}
+-------------------------------------------------------

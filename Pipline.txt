@@ -1,0 +1,28 @@
+Complete image GEN Pipeline
+
+             Dataset
+        Images + Captions
+                 │
+                 ▼
+         Dataset Loader
+         (dataset.py)
+                 │
+                 ▼
+        Stable Diffusion
+        + LoRA Adapter
+          (model.py)
+                 │
+                 ▼
+          Training Loop
+       (train_lora.py)
+                 │
+                 ▼
+        Save LoRA Weights
+      my_style.safetensors
+                 │
+        ┌────────┴────────┐
+        ▼                 ▼
+   generate.py       FastAPI API
+                         │
+                         ▼
+                    Frontend/User
