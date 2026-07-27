@@ -1,0 +1,11 @@
+torch>=2.0.0
+torchvision
+diffusers>=0.25.0
+transformers>=4.30.0
+peft>=0.7.0
+accelerate>=0.20.0
+safetensors
+pillow
+fastapi
+uvicorn
+python-multipart

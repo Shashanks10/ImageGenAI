@@ -1,33 +1,45 @@
 # Load SD + attach LoRA
+import sys
+import re
+
+# Fallback shim for Windows environments where AppLocker/Application Control blocks regex._regex binary DLL
+try:
+    import regex
+except Exception:
+    sys.modules["regex"] = re
+
 import torch
-
 from diffusers import StableDiffusionPipeline
-from peft import LoraConfig
-from peft import get_peft_model
+from peft import LoraConfig, get_peft_model
+
+MODEL_NAME = "runwayml/stable-diffusion-v1-5"
 
 
-MODEL_NAME = "stabilityai/stable-diffusion-2-1"
+def load_model(model_name: str = MODEL_NAME, device: str = None):
+    """
+    Loads Stable Diffusion pipeline, freezes base components (VAE, Text Encoder, UNet),
+    and attaches PEFT LoRA layers to UNet cross-attention modules.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    
-def load_model():
-
-    # Load Stable Diffusion Pipeline
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    print(f"Loading base pipeline '{model_name}' on {device} ({dtype})...")
     pipe = StableDiffusionPipeline.from_pretrained(
-        MODEL_NAME,
-        torch_dtype=torch.float16
+        model_name,
+        torch_dtype=dtype,
+        safety_checker=None,
     )
 
-    pipe = pipe.to("cuda")
-
-    # Disable safety checker (optional for training)
+    # Disable safety checker
     pipe.safety_checker = None
 
-    # Freeze entire pipeline
+    # Freeze base pipeline components
     pipe.vae.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
     pipe.unet.requires_grad_(False)
 
-    # LoRA Configuration
+    # LoRA Configuration (attaches to cross-attention layers)
     lora_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -41,13 +53,13 @@ def load_model():
         bias="none",
     )
 
-    # Attach LoRA to U-Net
-    pipe.unet = get_peft_model(
-        pipe.unet,
-        lora_config
-    )
+    # Attach PEFT LoRA to U-Net
+    pipe.unet = get_peft_model(pipe.unet, lora_config)
 
-    # Print trainable parameters
+    pipe.to(device)
+
+    print("\n--- Trainable Parameters ---")
     pipe.unet.print_trainable_parameters()
+    print("----------------------------\n")
 
-    return pipe
+    return pipe

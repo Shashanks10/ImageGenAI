@@ -1,1 +1,143 @@
-# Main training script
+"""
+train_lora.py
+
+Stable Diffusion LoRA trainer using model.py configuration.
+Fine-tunes LoRA weights for image style transfer (e.g., Peaky Blinders aesthetic).
+"""
+
+import os
+import sys
+import re
+
+# Fallback shim for Windows Application Control blocking regex._regex DLL
+try:
+    import regex
+except Exception:
+    sys.modules["regex"] = re
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+
+from dataset import ImageCaptionDataset
+from model import load_model
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_NAME = "runwayml/stable-diffusion-v1-5"
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", "peaky_lora"))
+
+BATCH_SIZE = 2
+EPOCHS = 5
+LR = 1e-4
+
+# -----------------------------
+# 1. Dataset & DataLoader
+# -----------------------------
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+dataset_path = os.path.join(base_dir, "Dataset", "Images")
+caption_path = os.path.join(base_dir, "Dataset", "Captions")
+
+if os.path.exists(dataset_path) and os.path.exists(caption_path):
+    dataset = ImageCaptionDataset(
+        image_dir=dataset_path,
+        caption_dir=caption_path,
+        image_size=512,
+    )
+    dataloader = DataLoader(
+        dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+    )
+else:
+    print(f"Warning: Dataset folders ('{dataset_path}', '{caption_path}') not found yet.")
+    dataloader = []
+
+# -----------------------------
+# 2. Load Pipeline & LoRA Model
+# -----------------------------
+pipe = load_model(MODEL_NAME, device=DEVICE)
+
+tokenizer = pipe.tokenizer
+text_encoder = pipe.text_encoder
+vae = pipe.vae
+unet = pipe.unet
+noise_scheduler = pipe.scheduler
+
+# Only optimize LoRA trainable parameters
+weight_dtype = pipe.dtype
+optimizer = torch.optim.AdamW(
+    filter(lambda p: p.requires_grad, unet.parameters()),
+    lr=LR,
+)
+
+# -----------------------------
+# 3. Training Loop
+# -----------------------------
+if len(dataloader) > 0:
+    for epoch in range(EPOCHS):
+        unet.train()
+
+        for step, batch in enumerate(dataloader):
+            images = batch["image"].to(DEVICE, dtype=weight_dtype)
+            captions = batch["caption"]
+
+            tokenized = tokenizer(
+                captions,
+                padding="max_length",
+                truncation=True,
+                max_length=tokenizer.model_max_length,
+                return_tensors="pt",
+            )
+
+            with torch.no_grad():
+                text_embeddings = text_encoder(
+                    tokenized.input_ids.to(DEVICE)
+                ).last_hidden_state.to(dtype=weight_dtype)
+
+                latents = vae.encode(images).latent_dist.sample()
+                latents = latents * 0.18215
+
+            noise = torch.randn_like(latents)
+
+            timesteps = torch.randint(
+                0,
+                noise_scheduler.config.num_train_timesteps,
+                (latents.shape[0],),
+                device=DEVICE,
+            ).long()
+
+            noisy_latents = noise_scheduler.add_noise(
+                latents,
+                noise,
+                timesteps,
+            )
+
+            noise_prediction = unet(
+                noisy_latents,
+                timesteps,
+                encoder_hidden_states=text_embeddings,
+            ).sample
+
+            loss = F.mse_loss(
+                noise_prediction,
+                noise,
+            )
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            print(
+                f"Epoch: {epoch+1}/{EPOCHS} | "
+                f"Step: {step+1} | "
+                f"Loss: {loss.item():.4f}"
+            )
+
+    # -----------------------------
+    # 4. Save LoRA Weights
+    # -----------------------------
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    unet.save_pretrained(OUTPUT_DIR)
+    print(f"Training Complete! LoRA weights saved to '{OUTPUT_DIR}'")
+else:
+    print("Add training images & captions to Dataset/ directory to start training.")
