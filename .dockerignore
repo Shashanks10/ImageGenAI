@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Python virtual environment & cache
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local model cache & temporary output
+cache/
+.cache/
+*.pth
+*.safetensors
+
+# IDE / Antigravity files
+.vscode/
+.idea/
+.gemini/

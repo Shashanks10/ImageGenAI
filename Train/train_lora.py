@@ -1,13 +1,16 @@
 """
 train_lora.py
 
-Stable Diffusion LoRA trainer using model.py configuration.
+Stable Diffusion LoRA trainer with Automatic Mixed Precision (AMP) and 4GB VRAM optimization.
 Fine-tunes LoRA weights for image style transfer (e.g., Peaky Blinders aesthetic).
 """
 
 import os
 import sys
 import re
+
+# Set PyTorch memory allocator to avoid fragmentation on 4GB GPUs
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Fallback shim for Windows Application Control blocking regex._regex DLL
 try:
@@ -26,7 +29,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "runwayml/stable-diffusion-v1-5"
 OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", "peaky_lora"))
 
-BATCH_SIZE = 2
+BATCH_SIZE = 1  # Ideal for 4GB VRAM GPUs (Quadro T1000, RTX 3050)
 EPOCHS = 5
 LR = 1e-4
 
@@ -63,19 +66,25 @@ vae = pipe.vae
 unet = pipe.unet
 noise_scheduler = pipe.scheduler
 
-# Only optimize LoRA trainable parameters
-weight_dtype = pipe.dtype
+# Use float16 on CUDA for base models
+weight_dtype = torch.float16 if DEVICE == "cuda" else torch.float32
+
+# Set up optimizer and AMP GradScaler to prevent NaN loss
 optimizer = torch.optim.AdamW(
     filter(lambda p: p.requires_grad, unet.parameters()),
     lr=LR,
+    eps=1e-8,
 )
+scaler = torch.amp.GradScaler("cuda", enabled=(DEVICE == "cuda"))
 
 # -----------------------------
 # 3. Training Loop
 # -----------------------------
 if len(dataloader) > 0:
+    print(f"Starting LoRA training for {EPOCHS} epochs on {DEVICE}...")
     for epoch in range(EPOCHS):
         unet.train()
+        total_loss = 0.0
 
         for step, batch in enumerate(dataloader):
             images = batch["image"].to(DEVICE, dtype=weight_dtype)
@@ -112,32 +121,41 @@ if len(dataloader) > 0:
                 timesteps,
             )
 
-            noise_prediction = unet(
-                noisy_latents,
-                timesteps,
-                encoder_hidden_states=text_embeddings,
-            ).sample
+            # Mixed Precision Forward Pass (prevents NaN loss)
+            with torch.amp.autocast("cuda", enabled=(DEVICE == "cuda"), dtype=torch.float16):
+                noise_prediction = unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=text_embeddings,
+                ).sample
 
-            loss = F.mse_loss(
-                noise_prediction,
-                noise,
-            )
+                # Compute MSE loss in float32 for numerical stability
+                loss = F.mse_loss(
+                    noise_prediction.float(),
+                    noise.float(),
+                )
 
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            total_loss += loss.item()
 
             print(
                 f"Epoch: {epoch+1}/{EPOCHS} | "
-                f"Step: {step+1} | "
+                f"Step: {step+1}/{len(dataloader)} | "
                 f"Loss: {loss.item():.4f}"
             )
+
+        avg_epoch_loss = total_loss / len(dataloader)
+        print(f"--- Epoch {epoch+1} Complete | Avg Loss: {avg_epoch_loss:.4f} ---")
 
     # -----------------------------
     # 4. Save LoRA Weights
     # -----------------------------
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     unet.save_pretrained(OUTPUT_DIR)
-    print(f"Training Complete! LoRA weights saved to '{OUTPUT_DIR}'")
+    print(f"\n🎉 Training Complete! Saved Peaky Blinders LoRA to '{OUTPUT_DIR}'")
 else:
     print("Add training images & captions to Dataset/ directory to start training.")
