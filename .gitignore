@@ -32,3 +32,41 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Infrastructure / Terraform
+# Local .terraform directories
+.terraform/
+**/.terraform/
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Exclude sensitive variable files
+*.tfvars
+*.tfvars.json
+!.tfvars.example
+
+# Ignore override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform plan output files
+*.tfplan
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# SSH Private Keys and Certificates
+*.pem
+*.key
+*.id_rsa
+*.id_rsa.pub
