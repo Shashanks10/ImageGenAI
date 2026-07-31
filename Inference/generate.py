@@ -57,30 +57,47 @@ class PosterGenerator:
             torch.float16 if self.device == "cuda" else torch.float32
         )
 
+        hf_token = os.environ.get("HF_TOKEN", None)
+
         if self.is_flux:
             try:
                 self.pipe = FluxImg2ImgPipeline.from_pretrained(
                     base_model_name,
                     torch_dtype=dtype,
+                    token=hf_token,
                 )
             except Exception as e:
+                if "401" in str(e) or "GatedRepoError" in type(e).__name__ or "gated" in str(e).lower():
+                    print(
+                        "\n⚠️ HUGGING FACE AUTHENTICATION REQUIRED FOR FLUX.1 ⚠️\n"
+                        "FLUX.1-schnell / FLUX.1-dev are gated repositories on Hugging Face.\n"
+                        "To fix this on your EC2 instance:\n"
+                        "1. Go to https://huggingface.co/black-forest-labs/FLUX.1-schnell (click 'Accept' once)\n"
+                        "2. Get your free token at https://huggingface.co/settings/tokens\n"
+                        "3. On EC2 run: export HF_TOKEN='your_hf_token_here'\n"
+                    )
+                    raise e
                 print(f"Notice: Could not load '{base_model_name}' ({e}). Trying 'black-forest-labs/FLUX.1-schnell'...")
                 self.pipe = FluxImg2ImgPipeline.from_pretrained(
                     "black-forest-labs/FLUX.1-schnell",
                     torch_dtype=dtype,
+                    token=hf_token,
                 )
         else:
             self.pipe = AutoPipelineForImage2Image.from_pretrained(
                 base_model_name,
                 torch_dtype=dtype,
                 safety_checker=None,
+                token=hf_token,
             )
+
 
         # Load FLUX LoRA adapter
         print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
         try:
-            self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name)
+            self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name, token=hf_token)
         except Exception as e:
+
             print(f"Notice: Could not load LoRA directly ({e}). Checking local files...")
             cool_path = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
