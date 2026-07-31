@@ -22,12 +22,13 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from dataset import ImageCaptionDataset
+from dataset import ImageCaptionDataset, HFImageCaptionDataset, load_hf_dataset
 from model import load_model
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "runwayml/stable-diffusion-v1-5"
-OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", "peaky_lora"))
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", "cool_posters_lora"))
+HF_DATASET_NAME = os.environ.get("HF_DATASET_NAME", "AIGCDuckBoss/fluxlora_cool-posters")
 
 BATCH_SIZE = 1  # Ideal for 4GB VRAM GPUs (Quadro T1000, RTX 3050)
 EPOCHS = 5
@@ -40,7 +41,13 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 dataset_path = os.path.join(base_dir, "Dataset", "Images")
 caption_path = os.path.join(base_dir, "Dataset", "Captions")
 
-if os.path.exists(dataset_path) and os.path.exists(caption_path):
+if HF_DATASET_NAME:
+    print(f"Loading Hugging Face repository/dataset: '{HF_DATASET_NAME}'...")
+    dataset = load_hf_dataset(HF_DATASET_NAME, image_size=512, default_caption="a cool poster")
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+elif os.path.exists(dataset_path) and os.path.exists(caption_path):
+    print(f"Loading local dataset from '{dataset_path}'...")
     dataset = ImageCaptionDataset(
         image_dir=dataset_path,
         caption_dir=caption_path,
@@ -52,8 +59,9 @@ if os.path.exists(dataset_path) and os.path.exists(caption_path):
         shuffle=True,
     )
 else:
-    print(f"Warning: Dataset folders ('{dataset_path}', '{caption_path}') not found yet.")
+    print(f"Warning: Neither HuggingFace dataset nor local folders ('{dataset_path}', '{caption_path}') found.")
     dataloader = []
+
 
 # -----------------------------
 # 2. Load Pipeline & LoRA Model

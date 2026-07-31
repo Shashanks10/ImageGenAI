@@ -26,8 +26,11 @@ DEFAULT_PEAKY_PROMPT = (
 )
 
 DEFAULT_NEGATIVE_PROMPT = (
-    "oversaturated, bright colorful, neon, cartoon, 3d render, low quality, blurry, distorted"
+    "deformed face, distorted eyes, bad anatomy, bad facial features, disfigured face, "
+    "mutated eyes, ugly face, unnatural expressions, oversaturated, cartoon, 3d render, "
+    "low quality, blurry, distorted"
 )
+
 
 
 class PeakyBlindersGenerator:
@@ -75,21 +78,22 @@ class PeakyBlindersGenerator:
         input_image: Image.Image | str,
         prompt: str = None,
         negative_prompt: str = DEFAULT_NEGATIVE_PROMPT,
-        strength: float = 0.60,
+        strength: float = 0.50,
         guidance_scale: float = 7.5,
         num_inference_steps: int = 30,
     ) -> Image.Image:
         """
-        Transforms input photo into Peaky Blinders aesthetic.
+        Transforms input photo into poster aesthetic.
 
         Args:
             input_image: PIL Image object or file path.
-            prompt: Optional user prompt. If None or empty, default Peaky Blinders prompt is applied.
+            prompt: Optional user prompt. If None or empty, default prompt is applied.
             negative_prompt: Elements to avoid in the output image.
             strength: Img2Img denoising strength (0.0 = identical to input, 1.0 = completely new image).
-                      0.55-0.65 works best for style transfer while keeping person's face/pose.
+                      0.40-0.55 is optimal for preserving human face identity while applying style.
             guidance_scale: Classifier-free guidance scale.
             num_inference_steps: Number of denoising steps.
+
 
         Returns:
             PIL.Image: Styled output image.
