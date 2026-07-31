@@ -42,11 +42,18 @@ resource "aws_instance" "training_server" {
 
   vpc_security_group_ids = [aws_security_group.ml_sg.id]
 
+  # Increase root disk volume (PyTorch CUDA + SD 1.5 weights require ~20GB+)
+  root_block_device {
+    volume_size           = 50
+    volume_type           = "gp3"
+    delete_on_termination = true
+  }
+
   # Basic User Data to prepare the system
   user_data = <<-EOF
               #!/bin/bash
               sudo apt-get update
-              sudo apt-get install -y git python3-pip
+              sudo apt-get install -y git python3-pip docker.io
               echo "FutureGenImage training server is ready."
               EOF
 
