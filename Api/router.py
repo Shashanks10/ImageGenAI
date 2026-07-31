@@ -15,8 +15,9 @@ router = APIRouter()
 async def generate_poster_image(
     file: UploadFile = File(...),
     prompt: str = Form(None),
-    strength: float = Form(0.50),
+    strength: float = Form(0.65),
 ):
+
     """
     Takes an input image and transforms it into cool poster style using trained LoRA.
     Optional text prompt can be supplied (uses 'cool_style' trigger prompt by default).

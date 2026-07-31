@@ -35,7 +35,8 @@ class ImageGenService:
         if self.generator is None and PosterGenerator is not None:
             self.generator = PosterGenerator()
 
-    def process_image(self, image_bytes: bytes, prompt: str = None, strength: float = 0.50) -> bytes:
+    def process_image(self, image_bytes: bytes, prompt: str = None, strength: float = 0.65) -> bytes:
+
         if self.generator is None:
             self.initialize()
 

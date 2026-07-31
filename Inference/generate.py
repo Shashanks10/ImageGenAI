@@ -1,7 +1,7 @@
 """
 generate.py
 
-Inference script for Cool Poster Image-to-Image style conversion using trained LoRA weights.
+Inference script for FLUX.1 Cool Poster Image-to-Image style conversion using pre-trained FLUX LoRA weights.
 Supports image transformation WITH or WITHOUT custom text prompts.
 """
 
@@ -17,95 +17,110 @@ except Exception:
 
 import torch
 from PIL import Image
-from diffusers import AutoPipelineForImage2Image
+from diffusers import FluxImg2ImgPipeline, AutoPipelineForImage2Image
 
 # Default Cool Poster trigger prompt used when no prompt is provided
 DEFAULT_POSTER_PROMPT = (
-    "cool_style, a stylish cool poster art, vibrant atmospheric lighting, "
-    "artistic portrait, high quality, graphic poster aesthetic"
+    "cool_style, a stylish cool poster art of a person, graphic vector illustration, "
+    "high contrast black lineart, bold ink shadows, red graphic poster background"
 )
 DEFAULT_PEAKY_PROMPT = DEFAULT_POSTER_PROMPT
 
 DEFAULT_NEGATIVE_PROMPT = (
+    "photograph, real life photo, 3d render, realistic skin, camera shot, "
     "deformed face, distorted eyes, bad anatomy, bad facial features, disfigured face, "
-    "mutated eyes, ugly face, unnatural expressions, oversaturated, cartoon, 3d render, "
-    "low quality, blurry, distorted"
+    "mutated eyes, ugly face, unnatural expressions, blurry, low quality"
 )
 
 
 class PosterGenerator:
     """
-    Image-to-Image transformation pipeline with LoRA style adapter.
+    Image-to-Image transformation pipeline using FLUX.1 with FLUX Cool Poster LoRA.
     """
 
     def __init__(
         self,
-        base_model_name: str = "runwayml/stable-diffusion-v1-5",
-        lora_weights_path: str = None,
+        base_model_name: str = "black-forest-labs/FLUX.1-schnell",
+        lora_repo_id: str = "AIGCDuckBoss/fluxlora_cool-posters",
+        weight_name: str = "flux_cool_poster.safetensors",
         device: str = None,
     ):
-        if lora_weights_path is None:
-            cool_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
-            )
-            peaky_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "Train", "output", "peaky_lora")
-            )
-            lora_weights_path = cool_path if os.path.exists(cool_path) else peaky_path
-
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
 
+        self.is_flux = "flux" in base_model_name.lower()
         print(f"Loading Img2Img base model '{base_model_name}' on {self.device}...")
 
-        # Load Img2Img pipeline (handles taking an image input + prompt)
-        dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self.pipe = AutoPipelineForImage2Image.from_pretrained(
-            base_model_name,
-            torch_dtype=dtype,
-            safety_checker=None,
-        ).to(self.device)
+        dtype = torch.bfloat16 if (self.device == "cuda" and torch.cuda.is_bf16_supported()) else (
+            torch.float16 if self.device == "cuda" else torch.float32
+        )
 
-        # Load LoRA adapter if trained weights exist
-        if os.path.exists(lora_weights_path):
-            print(f"Loading trained Cool Posters LoRA weights from '{lora_weights_path}'...")
-            self.pipe.load_lora_weights(lora_weights_path)
+        if self.is_flux:
+            try:
+                self.pipe = FluxImg2ImgPipeline.from_pretrained(
+                    base_model_name,
+                    torch_dtype=dtype,
+                )
+            except Exception as e:
+                print(f"Notice: Could not load '{base_model_name}' ({e}). Trying 'black-forest-labs/FLUX.1-schnell'...")
+                self.pipe = FluxImg2ImgPipeline.from_pretrained(
+                    "black-forest-labs/FLUX.1-schnell",
+                    torch_dtype=dtype,
+                )
         else:
-            print(
-                f"Notice: LoRA weights at '{lora_weights_path}' not found. "
-                "Pipeline will run with base model until LoRA is trained."
+            self.pipe = AutoPipelineForImage2Image.from_pretrained(
+                base_model_name,
+                torch_dtype=dtype,
+                safety_checker=None,
             )
+
+        # Load FLUX LoRA adapter
+        print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
+        try:
+            self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name)
+        except Exception as e:
+            print(f"Notice: Could not load LoRA directly ({e}). Checking local files...")
+            cool_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
+            )
+            if os.path.exists(cool_path):
+                self.pipe.load_lora_weights(cool_path)
+
+        if self.device == "cuda":
+            try:
+                self.pipe.enable_model_cpu_offload()
+            except Exception:
+                self.pipe.to(self.device)
+        else:
+            self.pipe.to("cpu")
 
     def convert(
         self,
         input_image: Image.Image | str,
         prompt: str = None,
         negative_prompt: str = DEFAULT_NEGATIVE_PROMPT,
-        strength: float = 0.50,
-        guidance_scale: float = 7.5,
-        num_inference_steps: int = 30,
+        strength: float = 0.65,
+        guidance_scale: float = 3.5,
+        num_inference_steps: int = 20,
     ) -> Image.Image:
         """
-        Transforms input photo into poster aesthetic.
+        Transforms input photo into FLUX cool poster graphic art.
 
         Args:
             input_image: PIL Image object or file path.
-            prompt: Optional user prompt. If None or empty, default prompt is applied.
+            prompt: Optional user prompt. If None or empty, default cool_style prompt is applied.
             negative_prompt: Elements to avoid in the output image.
-            strength: Img2Img denoising strength (0.0 = identical to input, 1.0 = completely new image).
-                      0.40-0.55 is optimal for preserving human face identity while applying style.
-            guidance_scale: Classifier-free guidance scale.
-            num_inference_steps: Number of denoising steps.
+            strength: Img2Img denoising strength (0.60-0.75 recommended for FLUX graphic style transfer).
+            guidance_scale: Guidance scale.
+            num_inference_steps: Denoising steps.
 
         Returns:
-            PIL.Image: Styled output image.
+            PIL.Image: Graphic poster styled output image.
         """
-        # Auto-fill default prompt if none provided by user
         final_prompt = prompt.strip() if (prompt and prompt.strip()) else DEFAULT_POSTER_PROMPT
 
-        # Ensure image is PIL RGB
         if isinstance(input_image, str):
             if not os.path.exists(input_image):
                 raise FileNotFoundError(f"Input image file '{input_image}' does not exist.")
@@ -113,21 +128,20 @@ class PosterGenerator:
         else:
             image = input_image.convert("RGB")
 
-        # Resize for standard SD resolution while keeping ratio
         image = image.resize((512, 512))
 
         print(f"Processing image with prompt: '{final_prompt[:60]}...'")
         print(f"Img2Img Strength: {strength}")
 
-        output = self.pipe(
-            prompt=final_prompt,
-            negative_prompt=negative_prompt,
-            image=image,
-            strength=strength,
-            guidance_scale=guidance_scale,
-            num_inference_steps=num_inference_steps,
-        ).images[0]
+        kwargs = {
+            "prompt": final_prompt,
+            "image": image,
+            "strength": strength,
+            "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
+        }
 
+        output = self.pipe(**kwargs).images[0]
         return output
 
 
@@ -135,8 +149,8 @@ PeakyBlindersGenerator = PosterGenerator
 
 
 if __name__ == "__main__":
-    print("Cool Poster Img2Img Generator ready!")
+    print("FLUX Cool Poster Img2Img Generator ready!")
     print("Example usage in your app/API:")
     print("  generator = PosterGenerator()")
     print("  styled_img = generator.convert('my_photo.jpg')  # Automatic (cool_style prompt)")
-    print("  styled_img = generator.convert('my_photo.jpg', prompt='cool_style, portrait poster')")
+    print("  styled_img = generator.convert('my_photo.jpg', prompt='cool_style, poster art')")

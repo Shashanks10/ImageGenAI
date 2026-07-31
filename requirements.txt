@@ -1,7 +1,7 @@
 torch>=2.0.0
 torchvision
-diffusers>=0.25.0
-transformers>=4.30.0
+diffusers>=0.30.0
+transformers>=4.43.0
 peft>=0.7.0
 accelerate>=0.20.0
 safetensors
@@ -10,3 +10,6 @@ fastapi
 uvicorn
 python-multipart
 datasets
+sentencepiece
+protobuf
+huggingface_hub
