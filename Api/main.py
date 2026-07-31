@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from router import router
 
 app = FastAPI(
-    title="FutureGenImage - Peaky Blinders Generator API",
-    description="Img2Img AI transformation endpoint converting photos into Peaky Blinders aesthetic.",
+    title="FutureGenImage - Cool Poster Generator API",
+    description="Img2Img AI transformation endpoint converting photos into Cool Poster aesthetic.",
     version="1.0.0",
 )
 
@@ -18,7 +18,8 @@ app.include_router(router)
 
 @app.get("/")
 def root():
-    return {"message": "FutureGenImage API is running. POST to /generate-peaky to convert photos."}
+    return {"message": "FutureGenImage API is running. POST to /generate-poster to convert photos."}
+
 
 
 if __name__ == "__main__":

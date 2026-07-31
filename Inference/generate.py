@@ -1,7 +1,7 @@
 """
 generate.py
 
-Inference script for Peaky Blinders Image-to-Image style conversion.
+Inference script for Cool Poster Image-to-Image style conversion using trained LoRA weights.
 Supports image transformation WITH or WITHOUT custom text prompts.
 """
 
@@ -19,11 +19,12 @@ import torch
 from PIL import Image
 from diffusers import AutoPipelineForImage2Image
 
-# Default Peaky Blinders trigger prompt used when no prompt is provided
-DEFAULT_PEAKY_PROMPT = (
-    "photo in peaky blinders style, 1920s cinematic mood, dark desaturated color grade, "
-    "high contrast, atmospheric lighting, detailed portrait, gritty vintage aesthetic"
+# Default Cool Poster trigger prompt used when no prompt is provided
+DEFAULT_POSTER_PROMPT = (
+    "cool_style, a stylish cool poster art, vibrant atmospheric lighting, "
+    "artistic portrait, high quality, graphic poster aesthetic"
 )
+DEFAULT_PEAKY_PROMPT = DEFAULT_POSTER_PROMPT
 
 DEFAULT_NEGATIVE_PROMPT = (
     "deformed face, distorted eyes, bad anatomy, bad facial features, disfigured face, "
@@ -32,8 +33,7 @@ DEFAULT_NEGATIVE_PROMPT = (
 )
 
 
-
-class PeakyBlindersGenerator:
+class PosterGenerator:
     """
     Image-to-Image transformation pipeline with LoRA style adapter.
     """
@@ -70,7 +70,7 @@ class PeakyBlindersGenerator:
 
         # Load LoRA adapter if trained weights exist
         if os.path.exists(lora_weights_path):
-            print(f"Loading trained Peaky Blinders LoRA weights from '{lora_weights_path}'...")
+            print(f"Loading trained Cool Posters LoRA weights from '{lora_weights_path}'...")
             self.pipe.load_lora_weights(lora_weights_path)
         else:
             print(
@@ -99,12 +99,11 @@ class PeakyBlindersGenerator:
             guidance_scale: Classifier-free guidance scale.
             num_inference_steps: Number of denoising steps.
 
-
         Returns:
             PIL.Image: Styled output image.
         """
         # Auto-fill default prompt if none provided by user
-        final_prompt = prompt.strip() if (prompt and prompt.strip()) else DEFAULT_PEAKY_PROMPT
+        final_prompt = prompt.strip() if (prompt and prompt.strip()) else DEFAULT_POSTER_PROMPT
 
         # Ensure image is PIL RGB
         if isinstance(input_image, str):
@@ -132,11 +131,12 @@ class PeakyBlindersGenerator:
         return output
 
 
-if __name__ == "__main__":
-    import sys
+PeakyBlindersGenerator = PosterGenerator
 
-    print("Peaky Blinders Img2Img Generator ready!")
+
+if __name__ == "__main__":
+    print("Cool Poster Img2Img Generator ready!")
     print("Example usage in your app/API:")
-    print("  generator = PeakyBlindersGenerator()")
-    print("  styled_img = generator.convert('my_photo.jpg')  # Automatic (no prompt)")
-    print("  styled_img = generator.convert('my_photo.jpg', prompt='peaky blinders flat cap suit')")
+    print("  generator = PosterGenerator()")
+    print("  styled_img = generator.convert('my_photo.jpg')  # Automatic (cool_style prompt)")
+    print("  styled_img = generator.convert('my_photo.jpg', prompt='cool_style, portrait poster')")

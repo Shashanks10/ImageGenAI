@@ -10,15 +10,16 @@ from service import service_instance
 router = APIRouter()
 
 
+@router.post("/generate-poster")
 @router.post("/generate-peaky")
-async def generate_peaky_blinders_image(
+async def generate_poster_image(
     file: UploadFile = File(...),
     prompt: str = Form(None),
-    strength: float = Form(0.60),
+    strength: float = Form(0.50),
 ):
     """
-    Takes an input image and transforms it into Peaky Blinders style.
-    Optional text prompt can be supplied.
+    Takes an input image and transforms it into cool poster style using trained LoRA.
+    Optional text prompt can be supplied (uses 'cool_style' trigger prompt by default).
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
@@ -31,3 +32,4 @@ async def generate_peaky_blinders_image(
     )
 
     return Response(content=output_bytes, media_type="image/jpeg")
+
