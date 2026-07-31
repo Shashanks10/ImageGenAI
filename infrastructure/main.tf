@@ -44,7 +44,7 @@ resource "aws_instance" "training_server" {
 
   # Increase root disk volume (PyTorch CUDA + SD 1.5 weights require ~20GB+)
   root_block_device {
-    volume_size           = 50
+    volume_size           = 100
     volume_type           = "gp3"
     delete_on_termination = true
   }
