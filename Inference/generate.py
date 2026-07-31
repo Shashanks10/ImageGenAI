@@ -45,9 +45,14 @@ class PeakyBlindersGenerator:
         device: str = None,
     ):
         if lora_weights_path is None:
-            lora_weights_path = os.path.abspath(
+            cool_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
+            )
+            peaky_path = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "Train", "output", "peaky_lora")
             )
+            lora_weights_path = cool_path if os.path.exists(cool_path) else peaky_path
+
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
