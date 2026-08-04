@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "instance_type" {
   description = "EC2 instance type (GPU instance)"
   type        = string
-  default     = "g4dn.xlarge" # NVIDIA T4 GPU, 16GB VRAM - Great for LoRA training
+  default     = "g5.2xlarge" # NVIDIA A10G GPU, 24GB VRAM, 32GB RAM - Required for FLUX.1 LoRA training
 }
 
 variable "ami_id" {
