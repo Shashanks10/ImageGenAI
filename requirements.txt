@@ -13,3 +13,4 @@ datasets
 sentencepiece
 protobuf
 huggingface_hub
+bitsandbytes

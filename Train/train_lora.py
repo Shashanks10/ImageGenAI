@@ -11,7 +11,8 @@ Key differences from SD 1.5 training:
   - Pre-computes text embeddings to free ~10GB VRAM from T5
 
 Requirements:
-  - GPU with >=24GB VRAM (A10G, A100, RTX 3090/4090)
+  - GPU with >=16GB VRAM (T4, A10G, A100, RTX 3090/4090)
+  - ~32GB+ system RAM (for loading FLUX pipeline on CPU first)
   - HF_TOKEN environment variable (FLUX.1 is a gated model)
 """
 
@@ -167,6 +168,7 @@ if len(dataloader) == 0:
     print("No training data available. Add images or set HF_DATASET_NAME. Exiting.")
     sys.exit(1)
 
+# Pipeline loads to CPU first (see model.py) — avoids GPU OOM during download
 pipe = load_model(MODEL_NAME, device=DEVICE)
 
 transformer = pipe.transformer
@@ -190,12 +192,13 @@ vae_scaling_factor = getattr(vae.config, "scaling_factor", 0.18215)
 
 
 # -------------------------------------------------------
-# 3. Pre-compute Text Embeddings (saves ~10GB VRAM)
+# 3. Pre-compute Text Embeddings on CPU (saves ~10GB GPU VRAM)
 # -------------------------------------------------------
-# Since text encoders are frozen, we compute embeddings once and cache them.
-# This allows us to move T5 (~10GB) off the GPU during training.
+# T5 alone is ~10GB — we CANNOT fit it on a 16GB T4 alongside the transformer.
+# Strategy: run text encoders on CPU, cache embeddings, then only move
+# VAE + Transformer to GPU for training.
 
-print("Pre-computing text embeddings (frees T5 from GPU during training)...")
+print("Pre-computing text embeddings on CPU (T5 never touches GPU)...")
 
 # Collect unique captions to avoid redundant encoding
 unique_captions = list(set(dataset[i]["caption"] for i in range(len(dataset))))
@@ -204,22 +207,38 @@ print(f"Found {len(unique_captions)} unique caption(s) across {len(dataset)} ima
 cached_embeds = {}
 with torch.no_grad():
     for caption in unique_captions:
+        # Text encoders stay on CPU — encode on CPU
         prompt_embeds, pooled_embeds, text_ids = encode_prompt(
             tokenizer, tokenizer_2, text_encoder, text_encoder_2,
-            [caption], DEVICE, weight_dtype,
+            [caption], "cpu", weight_dtype,
         )
         cached_embeds[caption] = {
-            "prompt_embeds": prompt_embeds.cpu(),
-            "pooled_embeds": pooled_embeds.cpu(),
-            "text_ids": text_ids.cpu(),
+            "prompt_embeds": prompt_embeds,
+            "pooled_embeds": pooled_embeds,
+            "text_ids": text_ids,
         }
 
-# Free text encoders from GPU to reclaim ~10GB VRAM
-text_encoder.to("cpu")
-text_encoder_2.to("cpu")
+print(f"Cached {len(cached_embeds)} text embedding(s).")
+
+# Delete text encoders entirely to free CPU RAM (~10GB)
+del text_encoder, text_encoder_2
+pipe.text_encoder = None
+pipe.text_encoder_2 = None
+import gc; gc.collect()
+
+# NOW move only VAE + Transformer to GPU (fits in 16GB T4)
 if DEVICE == "cuda":
+    print(f"Moving VAE + Transformer to {DEVICE}...")
+    vae.to(DEVICE)
+    transformer.to(DEVICE)
     torch.cuda.empty_cache()
-print("Freed text encoders from GPU.\n")
+    
+    # Print GPU memory usage
+    allocated = torch.cuda.memory_allocated() / 1024**3
+    reserved = torch.cuda.memory_reserved() / 1024**3
+    print(f"GPU VRAM: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved")
+
+print("Ready for training.\n")
 
 
 # -------------------------------------------------------
