@@ -1,7 +1,7 @@
 """
 router.py
 
-FastAPI router exposing the image-to-image Peaky Blinders generator endpoint.
+FastAPI router exposing the image-to-image poster generator endpoint.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, Response, HTTPException
@@ -11,7 +11,6 @@ router = APIRouter()
 
 
 @router.post("/generate-poster")
-@router.post("/generate-peaky")
 async def generate_poster_image(
     file: UploadFile = File(...),
     prompt: str = Form(None),

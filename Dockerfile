@@ -53,7 +53,7 @@ COPY Train /app/Train
 COPY Dataset /app/Dataset
 
 # Create cache and output directories with correct permissions
-RUN mkdir -p /app/cache/huggingface /app/cache/torch /app/Train/output/peaky_lora
+RUN mkdir -p /app/cache/huggingface /app/cache/torch /app/Train/output/cool_posters_lora
 
 # Create non-root system user for production security
 RUN useradd -m -u 1000 appuser && \

@@ -1,6 +1,6 @@
 # Infrastructure as Code (OpenTofu/Terraform)
 
-This directory contains the OpenTofu configuration to deploy a GPU-accelerated EC2 instance on AWS for training the Peaky Blinders LoRA module.
+This directory contains the OpenTofu configuration to deploy a GPU-accelerated EC2 instance on AWS for training the LoRA module.
 
 ## 🛠️ Architecture
 - **Provider**: AWS

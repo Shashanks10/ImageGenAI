@@ -24,7 +24,6 @@ DEFAULT_POSTER_PROMPT = (
     "cool_style, a stylish cool poster art of a person, graphic vector illustration, "
     "high contrast black lineart, bold ink shadows, red graphic poster background"
 )
-DEFAULT_PEAKY_PROMPT = DEFAULT_POSTER_PROMPT
 
 DEFAULT_NEGATIVE_PROMPT = (
     "photograph, real life photo, 3d render, realistic skin, camera shot, "
@@ -160,9 +159,6 @@ class PosterGenerator:
 
         output = self.pipe(**kwargs).images[0]
         return output
-
-
-PeakyBlindersGenerator = PosterGenerator
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 train_lora.py
 
 Stable Diffusion LoRA trainer with Automatic Mixed Precision (AMP) and 4GB VRAM optimization.
-Fine-tunes LoRA weights for image style transfer (e.g., Peaky Blinders aesthetic).
+Fine-tunes LoRA weights for image style transfer.
 """
 
 import os
@@ -164,6 +164,6 @@ if len(dataloader) > 0:
     # -----------------------------
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     unet.save_pretrained(OUTPUT_DIR)
-    print(f"\n🎉 Training Complete! Saved Peaky Blinders LoRA to '{OUTPUT_DIR}'")
+    print(f"\n🎉 Training Complete! Saved LoRA weights to '{OUTPUT_DIR}'")
 else:
     print("Add training images & captions to Dataset/ directory to start training.")
