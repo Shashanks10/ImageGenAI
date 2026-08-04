@@ -1,6 +1,16 @@
-# Load SD + attach LoRA
+"""
+model.py
+
+FLUX.1-schnell LoRA model loader.
+Loads the FLUX pipeline, freezes base components (VAE, Text Encoders, Transformer),
+and attaches PEFT LoRA layers to the Transformer's attention modules.
+
+Requires HF_TOKEN environment variable (FLUX.1 is a gated model).
+"""
+
 import sys
 import re
+import os
 
 # Fallback shim for Windows environments where AppLocker/Application Control blocks regex._regex binary DLL
 try:
@@ -9,37 +19,55 @@ except Exception:
     sys.modules["regex"] = re
 
 import torch
-from diffusers import StableDiffusionPipeline
+from diffusers import FluxPipeline
 from peft import LoraConfig, get_peft_model
 
-MODEL_NAME = "runwayml/stable-diffusion-v1-5"
+MODEL_NAME = "black-forest-labs/FLUX.1-schnell"
 
 
 def load_model(model_name: str = MODEL_NAME, device: str = None):
     """
-    Loads Stable Diffusion pipeline, freezes base components (VAE, Text Encoder, UNet),
-    and attaches PEFT LoRA layers to UNet cross-attention modules.
+    Loads FLUX.1-schnell pipeline, freezes base components (VAE, Text Encoders, Transformer),
+    and attaches PEFT LoRA layers to Transformer cross-attention modules.
+
+    Args:
+        model_name: HuggingFace model ID for the FLUX pipeline.
+        device: Target device ('cuda' or 'cpu'). Auto-detects if None.
+
+    Returns:
+        FluxPipeline with LoRA-wrapped Transformer.
     """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    dtype = torch.float16 if device == "cuda" else torch.float32
-    print(f"Loading base pipeline '{model_name}' on {device} ({dtype})...")
-    pipe = StableDiffusionPipeline.from_pretrained(
+    # FLUX prefers bfloat16; fall back to float16 if bf16 not supported
+    if device == "cuda" and torch.cuda.is_bf16_supported():
+        dtype = torch.bfloat16
+    elif device == "cuda":
+        dtype = torch.float16
+    else:
+        dtype = torch.float32
+
+    hf_token = os.environ.get("HF_TOKEN", None)
+
+    print(f"Loading FLUX.1 pipeline '{model_name}' on {device} ({dtype})...")
+    pipe = FluxPipeline.from_pretrained(
         model_name,
         torch_dtype=dtype,
-        safety_checker=None,
+        token=hf_token,
     )
 
-    # Disable safety checker
-    pipe.safety_checker = None
+    # Disable safety checker if present
+    if hasattr(pipe, "safety_checker"):
+        pipe.safety_checker = None
 
-    # Freeze base pipeline components
+    # Freeze all base pipeline components
     pipe.vae.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
-    pipe.unet.requires_grad_(False)
+    pipe.text_encoder_2.requires_grad_(False)
+    pipe.transformer.requires_grad_(False)
 
-    # LoRA Configuration (attaches to cross-attention layers)
+    # LoRA Configuration (attaches to transformer cross-attention layers)
     lora_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -49,17 +77,17 @@ def load_model(model_name: str = MODEL_NAME, device: str = None):
             "to_v",
             "to_out.0",
         ],
-        lora_dropout=0.1,
+        lora_dropout=0.05,
         bias="none",
     )
 
-    # Attach PEFT LoRA to U-Net
-    pipe.unet = get_peft_model(pipe.unet, lora_config)
+    # Attach PEFT LoRA to FLUX Transformer (not UNet — FLUX uses a Transformer)
+    pipe.transformer = get_peft_model(pipe.transformer, lora_config)
 
     pipe.to(device)
 
-    print("\n--- Trainable Parameters ---")
-    pipe.unet.print_trainable_parameters()
-    print("----------------------------\n")
+    print("\n--- Trainable Parameters (LoRA) ---")
+    pipe.transformer.print_trainable_parameters()
+    print("-----------------------------------\n")
 
-    return pipe
+    return pipe

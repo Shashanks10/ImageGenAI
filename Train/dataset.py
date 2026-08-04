@@ -68,15 +68,25 @@ class HFImageCaptionDataset(Dataset):
     Dataset wrapper for HuggingFace Datasets (e.g., AIGCDuckBoss/fluxlora_cool-posters).
     """
 
-    def __init__(self, hf_dataset, image_size=512, default_caption="a cool poster"):
+    def __init__(self, hf_dataset, image_size=512, default_caption="a cool poster", augment=False):
         self.dataset = hf_dataset
-        self.transform = transforms.Compose(
-            [
-                transforms.Resize((image_size, image_size)),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-            ]
-        )
+
+        # When augment=True, apply random transforms to maximize small datasets
+        transform_list = []
+        if augment:
+            transform_list.extend([
+                transforms.RandomResizedCrop(image_size, scale=(0.85, 1.0)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05),
+            ])
+        else:
+            transform_list.append(transforms.Resize((image_size, image_size)))
+
+        transform_list.extend([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
+        ])
+        self.transform = transforms.Compose(transform_list)
         self.default_caption = default_caption
 
         column_names = getattr(self.dataset, "column_names", [])
@@ -134,7 +144,7 @@ class HFModelRepoDataset(Dataset):
     Dataset wrapper for HuggingFace Model Repositories containing images (e.g. AIGCDuckBoss/fluxlora_cool-posters).
     """
 
-    def __init__(self, image_dir, image_size=512, default_caption="a cool poster"):
+    def __init__(self, image_dir, image_size=512, default_caption="a cool poster", augment=False):
         self.image_files = sorted(
             [
                 os.path.join(image_dir, f)
@@ -142,13 +152,23 @@ class HFModelRepoDataset(Dataset):
                 if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
             ]
         )
-        self.transform = transforms.Compose(
-            [
-                transforms.Resize((image_size, image_size)),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-            ]
-        )
+
+        # When augment=True, apply random transforms to maximize small datasets
+        transform_list = []
+        if augment:
+            transform_list.extend([
+                transforms.RandomResizedCrop(image_size, scale=(0.85, 1.0)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05),
+            ])
+        else:
+            transform_list.append(transforms.Resize((image_size, image_size)))
+
+        transform_list.extend([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
+        ])
+        self.transform = transforms.Compose(transform_list)
         self.default_caption = default_caption
 
     def __len__(self):
@@ -164,14 +184,16 @@ class HFModelRepoDataset(Dataset):
         }
 
 
-def load_hf_dataset(repo_id, image_size=512, default_caption="a cool poster"):
+def load_hf_dataset(repo_id, image_size=512, default_caption="a cool poster", augment=False):
     """
     Loads dataset from HuggingFace, supporting both HF Dataset repos and HF Model repos.
+    When augment=True, applies data augmentation (random crop, flip, color jitter)
+    to maximize small datasets.
     """
     try:
         from datasets import load_dataset
         raw_dataset = load_dataset(repo_id, split="train")
-        return HFImageCaptionDataset(raw_dataset, image_size=image_size, default_caption=default_caption)
+        return HFImageCaptionDataset(raw_dataset, image_size=image_size, default_caption=default_caption, augment=augment)
     except Exception as e:
         print(f"Loading '{repo_id}' via HuggingFace Hub snapshot...")
         from huggingface_hub import snapshot_download
@@ -180,5 +202,5 @@ def load_hf_dataset(repo_id, image_size=512, default_caption="a cool poster"):
         if not os.path.exists(image_dir) or len(os.listdir(image_dir)) == 0:
             image_dir = repo_dir
 
-        return HFModelRepoDataset(image_dir, image_size=image_size, default_caption=default_caption)
+        return HFModelRepoDataset(image_dir, image_size=image_size, default_caption=default_caption, augment=augment)
 
