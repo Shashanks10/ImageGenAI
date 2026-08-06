@@ -17,7 +17,8 @@ except Exception:
 
 import torch
 from PIL import Image
-from diffusers import FluxImg2ImgPipeline, AutoPipelineForImage2Image
+from diffusers import FluxImg2ImgPipeline, FluxTransformer2DModel, AutoPipelineForImage2Image
+from transformers import BitsAndBytesConfig
 
 # Default Cool Poster trigger prompt used when no prompt is provided
 DEFAULT_POSTER_PROMPT = (
@@ -60,11 +61,33 @@ class PosterGenerator:
 
         if self.is_flux:
             try:
-                self.pipe = FluxImg2ImgPipeline.from_pretrained(
-                    base_model_name,
-                    torch_dtype=dtype,
-                    token=hf_token,
-                )
+                if self.device == "cuda" and torch.cuda.is_available():
+                    print("Loading FLUX Transformer in 4-bit nf4 quantization to save GPU VRAM...")
+                    quant_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=dtype,
+                        bnb_4bit_use_double_quant=True,
+                    )
+                    transformer = FluxTransformer2DModel.from_pretrained(
+                        base_model_name,
+                        subfolder="transformer",
+                        quantization_config=quant_config,
+                        torch_dtype=dtype,
+                        token=hf_token,
+                    )
+                    self.pipe = FluxImg2ImgPipeline.from_pretrained(
+                        base_model_name,
+                        transformer=transformer,
+                        torch_dtype=dtype,
+                        token=hf_token,
+                    )
+                else:
+                    self.pipe = FluxImg2ImgPipeline.from_pretrained(
+                        base_model_name,
+                        torch_dtype=dtype,
+                        token=hf_token,
+                    )
             except Exception as e:
                 if "401" in str(e) or "GatedRepoError" in type(e).__name__ or "gated" in str(e).lower():
                     print(
@@ -76,9 +99,9 @@ class PosterGenerator:
                         "3. On EC2 run: export HF_TOKEN='your_hf_token_here'\n"
                     )
                     raise e
-                print(f"Notice: Could not load '{base_model_name}' ({e}). Trying 'black-forest-labs/FLUX.1-schnell'...")
+                print(f"Notice: Could not load '{base_model_name}' ({e}). Trying default loading...")
                 self.pipe = FluxImg2ImgPipeline.from_pretrained(
-                    "black-forest-labs/FLUX.1-schnell",
+                    base_model_name,
                     torch_dtype=dtype,
                     token=hf_token,
                 )
@@ -90,23 +113,24 @@ class PosterGenerator:
                 token=hf_token,
             )
 
-
-        # Load FLUX LoRA adapter
-        print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
-        try:
-            self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name, token=hf_token)
-        except Exception as e:
-
-            print(f"Notice: Could not load LoRA directly ({e}). Checking local files...")
-            cool_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
-            )
-            if os.path.exists(cool_path):
-                self.pipe.load_lora_weights(cool_path)
+        # Load FLUX LoRA adapter (check local trained weights first)
+        cool_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
+        )
+        if os.path.exists(cool_path):
+            print(f"Loading freshly trained local FLUX LoRA weights from '{cool_path}'...")
+            self.pipe.load_lora_weights(cool_path)
+        else:
+            print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
+            try:
+                self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name, token=hf_token)
+            except Exception as e:
+                print(f"Notice: Could not load remote LoRA weights: {e}")
 
         if self.device == "cuda":
             try:
                 self.pipe.enable_model_cpu_offload()
+                print("Enabled CPU offloading for inference (saves GPU VRAM).")
             except Exception:
                 self.pipe.to(self.device)
         else:
@@ -119,7 +143,7 @@ class PosterGenerator:
         negative_prompt: str = DEFAULT_NEGATIVE_PROMPT,
         strength: float = 0.65,
         guidance_scale: float = 3.5,
-        num_inference_steps: int = 20,
+        num_inference_steps: int = 4,
     ) -> Image.Image:
         """
         Transforms input photo into FLUX cool poster graphic art.
