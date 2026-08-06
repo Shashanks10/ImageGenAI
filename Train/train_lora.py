@@ -254,7 +254,7 @@ optimizer = torch.optim.AdamW(
 # GradScaler is only needed for float16 (not bfloat16). With bf16, enabled=False
 # makes the scaler a transparent pass-through.
 scaler = torch.amp.GradScaler(
-    "cuda",
+    DEVICE if DEVICE == "cuda" else "cpu",
     enabled=(DEVICE == "cuda" and weight_dtype == torch.float16),
 )
 
@@ -322,7 +322,7 @@ for epoch in range(EPOCHS):
         img_ids = prepare_latent_image_ids(b, h // 2, w // 2, DEVICE, weight_dtype)
 
         # --- Forward pass through FLUX Transformer ---
-        with torch.amp.autocast("cuda", enabled=(DEVICE == "cuda"), dtype=weight_dtype):
+        with torch.amp.autocast(DEVICE, enabled=(DEVICE == "cuda"), dtype=weight_dtype):
             model_pred = transformer(
                 hidden_states=noisy_latents,
                 timestep=u,  # Sigma values in [0, 1]

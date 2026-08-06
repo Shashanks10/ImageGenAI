@@ -64,15 +64,19 @@ def load_model(model_name: str = MODEL_NAME, device: str = None):
     # -------------------------------------------------------
     # The FLUX Transformer is ~12B params (~24GB in fp16).
     # 4-bit nf4 quantization compresses it to ~6GB — fits on A10G/T4.
-    print(f"Loading FLUX Transformer in 4-bit nf4 quantization...")
-    print(f"  (~6GB instead of ~24GB — fits on A10G/T4)")
+    if device == "cuda" and torch.cuda.is_available():
+        print(f"Loading FLUX Transformer in 4-bit nf4 quantization...")
+        print(f"  (~6GB instead of ~24GB — fits on A10G/T4)")
 
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=True,  # Nested quantization for extra savings
-    )
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=True,  # Nested quantization for extra savings
+        )
+    else:
+        print(f"Warning: CUDA GPU not detected. Skipping 4-bit quantization (loading on CPU in {compute_dtype}).")
+        quantization_config = None
 
     transformer = FluxTransformer2DModel.from_pretrained(
         model_name,
