@@ -76,18 +76,43 @@ class PosterGenerator:
                         torch_dtype=dtype,
                         token=hf_token,
                     )
-                    self.pipe = FluxImg2ImgPipeline.from_pretrained(
-                        base_model_name,
-                        transformer=transformer,
-                        torch_dtype=dtype,
-                        token=hf_token,
-                    )
                 else:
-                    self.pipe = FluxImg2ImgPipeline.from_pretrained(
+                    transformer = FluxTransformer2DModel.from_pretrained(
                         base_model_name,
+                        subfolder="transformer",
                         torch_dtype=dtype,
                         token=hf_token,
                     )
+
+                # Attach freshly trained local LoRA adapter directly to Transformer
+                cool_path = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
+                )
+                if os.path.exists(cool_path):
+                    print(f"Loading freshly trained local PEFT LoRA adapter from '{cool_path}'...")
+                    try:
+                        from peft import PeftModel
+                        transformer = PeftModel.from_pretrained(transformer, cool_path)
+                        print("Successfully attached local PEFT LoRA adapter to FLUX Transformer!")
+                    except Exception as peft_err:
+                        print(f"Notice: Could not attach PEFT model directly ({peft_err}).")
+
+                print(f"Initializing FluxImg2ImgPipeline with LoRA Transformer...")
+                self.pipe = FluxImg2ImgPipeline.from_pretrained(
+                    base_model_name,
+                    transformer=transformer,
+                    torch_dtype=dtype,
+                    token=hf_token,
+                )
+
+                # If local PEFT adapter wasn't loaded directly, try remote load_lora_weights
+                if not os.path.exists(cool_path):
+                    print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
+                    try:
+                        self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name, token=hf_token)
+                    except Exception as e:
+                        print(f"Notice: Could not load remote LoRA weights: {e}")
+
             except Exception as e:
                 if "401" in str(e) or "GatedRepoError" in type(e).__name__ or "gated" in str(e).lower():
                     print(
@@ -99,7 +124,7 @@ class PosterGenerator:
                         "3. On EC2 run: export HF_TOKEN='your_hf_token_here'\n"
                     )
                     raise e
-                print(f"Notice: Could not load '{base_model_name}' ({e}). Trying default loading...")
+                print(f"Notice: Loading fallback pipeline for '{base_model_name}' ({e})...")
                 self.pipe = FluxImg2ImgPipeline.from_pretrained(
                     base_model_name,
                     torch_dtype=dtype,
@@ -113,38 +138,12 @@ class PosterGenerator:
                 token=hf_token,
             )
 
-        # Load FLUX LoRA adapter (check local trained weights first)
-        cool_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
-        )
-        if os.path.exists(cool_path):
-            print(f"Loading freshly trained local FLUX LoRA weights from '{cool_path}'...")
-            try:
-                self.pipe.load_lora_weights(cool_path)
-            except Exception as e:
-                print(f"Notice: pipe.load_lora_weights failed ({e}). Loading PEFT adapter directly into Transformer...")
-                try:
-                    if hasattr(self.pipe.transformer, "load_adapter"):
-                        self.pipe.transformer.load_adapter(cool_path)
-                    else:
-                        from peft import PeftModel
-                        self.pipe.transformer = PeftModel.from_pretrained(self.pipe.transformer, cool_path)
-                    print("Successfully loaded local PEFT LoRA adapter into Transformer.")
-                except Exception as peft_err:
-                    print(f"Error loading local LoRA adapter: {peft_err}")
-        else:
-            print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
-            try:
-                self.pipe.load_lora_weights(lora_repo_id, weight_name=weight_name, token=hf_token)
-            except Exception as e:
-                print(f"Notice: Could not load remote LoRA weights: {e}")
-
         if self.device == "cuda":
-            try:
-                self.pipe.enable_model_cpu_offload()
-                print("Enabled CPU offloading for inference (saves GPU VRAM).")
-            except Exception:
-                self.pipe.to(self.device)
+            print(f"Moving entire pipeline directly to {self.device}...")
+            self.pipe.to(self.device)
+            torch.cuda.empty_cache()
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            print(f"GPU VRAM in use: {allocated:.2f} GB / 24 GB")
         else:
             self.pipe.to("cpu")
 
