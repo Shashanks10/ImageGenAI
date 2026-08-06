@@ -119,7 +119,19 @@ class PosterGenerator:
         )
         if os.path.exists(cool_path):
             print(f"Loading freshly trained local FLUX LoRA weights from '{cool_path}'...")
-            self.pipe.load_lora_weights(cool_path)
+            try:
+                self.pipe.load_lora_weights(cool_path)
+            except Exception as e:
+                print(f"Notice: pipe.load_lora_weights failed ({e}). Loading PEFT adapter directly into Transformer...")
+                try:
+                    if hasattr(self.pipe.transformer, "load_adapter"):
+                        self.pipe.transformer.load_adapter(cool_path)
+                    else:
+                        from peft import PeftModel
+                        self.pipe.transformer = PeftModel.from_pretrained(self.pipe.transformer, cool_path)
+                    print("Successfully loaded local PEFT LoRA adapter into Transformer.")
+                except Exception as peft_err:
+                    print(f"Error loading local LoRA adapter: {peft_err}")
         else:
             print(f"Loading FLUX Cool Posters LoRA weights from '{lora_repo_id}'...")
             try:
