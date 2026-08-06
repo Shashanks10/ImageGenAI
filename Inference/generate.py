@@ -153,9 +153,9 @@ class PosterGenerator:
         input_image: Image.Image | str,
         prompt: str = None,
         negative_prompt: str = DEFAULT_NEGATIVE_PROMPT,
-        strength: float = 0.65,
+        strength: float = 0.80,
         guidance_scale: float = 3.5,
-        num_inference_steps: int = 4,
+        num_inference_steps: int = 10,
     ) -> Image.Image:
         """
         Transforms input photo into FLUX cool poster graphic art.
@@ -164,14 +164,22 @@ class PosterGenerator:
             input_image: PIL Image object or file path.
             prompt: Optional user prompt. If None or empty, default cool_style prompt is applied.
             negative_prompt: Elements to avoid in the output image.
-            strength: Img2Img denoising strength (0.60-0.75 recommended for FLUX graphic style transfer).
+            strength: Img2Img denoising strength (0.75-0.85 recommended for graphic style transfer).
             guidance_scale: Guidance scale.
             num_inference_steps: Denoising steps.
 
         Returns:
             PIL.Image: Graphic poster styled output image.
         """
-        final_prompt = prompt.strip() if (prompt and prompt.strip()) else DEFAULT_POSTER_PROMPT
+        if prompt and prompt.strip():
+            user_p = prompt.strip()
+            # Ensure trigger word 'cool_style' is present to activate trained LoRA
+            if "cool_style" not in user_p:
+                final_prompt = f"cool_style, {user_p}, a stylish cool poster art of a person, graphic vector illustration, high contrast black lineart, bold ink shadows, red graphic poster background"
+            else:
+                final_prompt = user_p
+        else:
+            final_prompt = DEFAULT_POSTER_PROMPT
 
         if isinstance(input_image, str):
             if not os.path.exists(input_image):
@@ -182,8 +190,8 @@ class PosterGenerator:
 
         image = image.resize((512, 512))
 
-        print(f"Processing image with prompt: '{final_prompt[:60]}...'")
-        print(f"Img2Img Strength: {strength}")
+        print(f"Processing image with trigger prompt: '{final_prompt[:80]}...'")
+        print(f"Img2Img Strength: {strength} | Steps: {num_inference_steps}")
 
         kwargs = {
             "prompt": final_prompt,
@@ -191,6 +199,7 @@ class PosterGenerator:
             "strength": strength,
             "num_inference_steps": num_inference_steps,
             "guidance_scale": guidance_scale,
+            "joint_attention_kwargs": {"scale": 1.25},
         }
 
         output = self.pipe(**kwargs).images[0]
