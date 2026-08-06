@@ -130,23 +130,32 @@ class PosterGenerator:
                     print(f"Warning: Could not load local LoRA either: {local_err}")
 
         # -------------------------------------------------------
-        # Step 4: Memory management — move to GPU efficiently
+        # Step 4: Move components to GPU
         # -------------------------------------------------------
+        # IMPORTANT: 4-bit bitsandbytes models are INCOMPATIBLE with
+        # enable_sequential_cpu_offload() / enable_model_cpu_offload().
+        # Those methods install Accelerate hooks that try to move 4-bit
+        # tensors through meta tensors — causing "Cannot copy out of meta tensor".
+        #
+        # A10G has 24GB VRAM. Components fit easily:
+        #   4-bit Transformer  : ~6.1 GB  (already on CUDA from from_pretrained)
+        #   T5 text encoder    : ~10.2 GB
+        #   CLIP text encoder  : ~0.6 GB
+        #   VAE                : ~0.3 GB
+        #   ─────────────────────────────
+        #   Total              : ~17.2 GB  ✓ (within 24 GB)
         if self.device == "cuda":
-            # Use sequential CPU offload: keeps VAE + Text Encoders in RAM,
-            # only moves the active component to GPU one at a time.
-            # Transformer (4-bit, ~6GB) stays on GPU. T5 (~10GB) stays in RAM.
-            try:
-                self.pipe.enable_sequential_cpu_offload()
-                print("Enabled sequential CPU offloading (Transformer stays on GPU, encoders in RAM).")
-            except Exception as e:
-                print(f"Warning: CPU offload failed ({e}). Moving full pipeline to GPU...")
-                self.pipe.to(self.device)
-
+            print("Moving pipeline components to GPU (no offloading — incompatible with 4-bit)...")
+            # Transformer is already on CUDA from from_pretrained with quantization_config.
+            # Only move the remaining components explicitly.
+            self.pipe.vae.to(self.device)
+            self.pipe.text_encoder.to(self.device)
+            self.pipe.text_encoder_2.to(self.device)
             torch.cuda.empty_cache()
             gc.collect()
             allocated = torch.cuda.memory_allocated() / 1024**3
-            print(f"GPU VRAM used at init: {allocated:.2f} GB / 24 GB")
+            reserved  = torch.cuda.memory_reserved()  / 1024**3
+            print(f"GPU VRAM: {allocated:.1f} GB allocated / {reserved:.1f} GB reserved (24 GB total)")
         else:
             self.pipe.to("cpu")
 
