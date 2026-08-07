@@ -35,13 +35,26 @@ class ImageGenService:
         if self.generator is None and PosterGenerator is not None:
             self.generator = PosterGenerator()
 
-    def process_image(self, image_bytes: bytes, prompt: str = None, strength: float = 0.65) -> bytes:
-
+    def process_image(self, image_bytes: bytes = None, prompt: str = None, strength: float = 0.85) -> bytes:
         if self.generator is None:
             self.initialize()
 
-        input_image = Image.open(BytesIO(image_bytes)).convert("RGB")
-        output_image = self.generator.convert(input_image=input_image, prompt=prompt, strength=strength)
+        if image_bytes:
+            input_image = Image.open(BytesIO(image_bytes)).convert("RGB")
+        else:
+            input_image = None
+
+        output_image = self.generator.generate(prompt=prompt, input_image=input_image, strength=strength)
+
+        buffer = BytesIO()
+        output_image.save(buffer, format="JPEG")
+        return buffer.getvalue()
+
+    def process_text_prompt(self, prompt: str, width: int = 512, height: int = 512) -> bytes:
+        if self.generator is None:
+            self.initialize()
+
+        output_image = self.generator.generate(prompt=prompt, input_image=None, width=width, height=height)
 
         buffer = BytesIO()
         output_image.save(buffer, format="JPEG")

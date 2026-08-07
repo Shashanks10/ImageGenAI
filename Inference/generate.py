@@ -98,24 +98,36 @@ class PosterGenerator:
             )
 
         # -------------------------------------------------------
-        # Step 2: Build FluxImg2ImgPipeline with quantized Transformer
+        # Step 2: Build FluxPipeline (T2I) and FluxImg2ImgPipeline (Img2Img)
         # -------------------------------------------------------
-        print(f"Building FluxImg2ImgPipeline...")
-        self.pipe = FluxImg2ImgPipeline.from_pretrained(
+        print(f"Building FluxPipeline (Text-to-Image)...")
+        self.t2i_pipe = FluxPipeline.from_pretrained(
             base_model_name,
             transformer=transformer,
             torch_dtype=dtype,
             token=hf_token,
         )
 
+        print(f"Building FluxImg2ImgPipeline (Image-to-Image)...")
+        self.img2img_pipe = FluxImg2ImgPipeline(
+            vae=self.t2i_pipe.vae,
+            text_encoder=self.t2i_pipe.text_encoder,
+            text_encoder_2=self.t2i_pipe.text_encoder_2,
+            tokenizer=self.t2i_pipe.tokenizer,
+            tokenizer_2=self.t2i_pipe.tokenizer_2,
+            transformer=self.t2i_pipe.transformer,
+            scheduler=self.t2i_pipe.scheduler,
+        )
+
+        # Backward compatibility handle
+        self.pipe = self.t2i_pipe
+
         # -------------------------------------------------------
         # Step 3: Load the pre-trained Cool Poster LoRA weights
         # -------------------------------------------------------
-        # The remote HuggingFace LoRA is properly trained on hundreds of poster images.
-        # The locally-trained LoRA (4 images) is NOT strong enough for visible transformation.
         print(f"Loading pre-trained Cool Poster LoRA from '{lora_repo_id}'...")
         try:
-            self.pipe.load_lora_weights(
+            self.t2i_pipe.load_lora_weights(
                 lora_repo_id,
                 weight_name=weight_name,
                 token=hf_token,
@@ -123,110 +135,120 @@ class PosterGenerator:
             print("Successfully loaded pre-trained Cool Poster LoRA!")
         except Exception as e:
             print(f"Warning: Could not load remote LoRA weights ({e}).")
-            # Fallback: try loading local LoRA if available
             cool_path = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "Train", "output", "cool_posters_lora")
             )
             if os.path.exists(cool_path):
                 print(f"Falling back to local LoRA weights from '{cool_path}'...")
                 try:
-                    self.pipe.load_lora_weights(cool_path)
+                    self.t2i_pipe.load_lora_weights(cool_path)
                 except Exception as local_err:
                     print(f"Warning: Could not load local LoRA either: {local_err}")
 
         # -------------------------------------------------------
         # Step 4: Move components to GPU
         # -------------------------------------------------------
-        # IMPORTANT: 4-bit bitsandbytes models are INCOMPATIBLE with
-        # enable_sequential_cpu_offload() / enable_model_cpu_offload().
-        # Those methods install Accelerate hooks that try to move 4-bit
-        # tensors through meta tensors — causing "Cannot copy out of meta tensor".
-        #
-        # A10G has 24GB VRAM. Components fit easily:
-        #   4-bit Transformer  : ~6.1 GB  (already on CUDA from from_pretrained)
-        #   T5 text encoder    : ~10.2 GB
-        #   CLIP text encoder  : ~0.6 GB
-        #   VAE                : ~0.3 GB
-        #   ─────────────────────────────
-        #   Total              : ~17.2 GB  ✓ (within 24 GB)
         if self.device == "cuda":
-            print("Moving pipeline components to GPU (no offloading — incompatible with 4-bit)...")
-            # Transformer is already on CUDA from from_pretrained with quantization_config.
-            # Only move the remaining components explicitly.
-            self.pipe.vae.to(self.device)
-            self.pipe.text_encoder.to(self.device)
-            self.pipe.text_encoder_2.to(self.device)
+            print("Moving pipeline components to GPU...")
+            self.t2i_pipe.vae.to(self.device)
+            self.t2i_pipe.text_encoder.to(self.device)
+            self.t2i_pipe.text_encoder_2.to(self.device)
             torch.cuda.empty_cache()
             gc.collect()
             allocated = torch.cuda.memory_allocated() / 1024**3
             reserved  = torch.cuda.memory_reserved()  / 1024**3
             print(f"GPU VRAM: {allocated:.1f} GB allocated / {reserved:.1f} GB reserved (24 GB total)")
         else:
-            self.pipe.to("cpu")
+            self.t2i_pipe.to("cpu")
 
-        print("PosterGenerator ready!\n")
+        print("PosterGenerator ready (supports both Text-to-Image and Image-to-Image)!\n")
 
-    def convert(
+    def generate(
         self,
-        input_image: Image.Image | str,
         prompt: str = None,
+        input_image: Image.Image | str = None,
         strength: float = 0.85,
-        guidance_scale: float = 3.5,   # FLUX.1-dev supports CFG (unlike schnell which needs 0.0)
-        num_inference_steps: int = 25, # dev works well at 20-30 steps
+        guidance_scale: float = 3.5,
+        num_inference_steps: int = 25,
         lora_scale: float = 1.0,
+        width: int = 512,
+        height: int = 512,
+        use_lora_trigger: bool = True,
     ) -> Image.Image:
         """
-        Transforms an input photo into FLUX Cool Poster graphic art.
+        Generates an image using FLUX.1.
+        - If input_image is provided: Runs Image-to-Image style transfer.
+        - If input_image is None: Runs Text-to-Image generation from scratch.
 
         Args:
-            input_image: PIL Image or file path.
-            prompt: Optional text prompt. 'cool_style' trigger word is always prepended.
-            strength: Img2Img denoising strength. Higher = more stylized (0.75-0.90 recommended).
-            guidance_scale: How strongly to follow the prompt (3.5 is good for FLUX).
-            num_inference_steps: Total diffusion steps (more = sharper result).
-            lora_scale: LoRA adapter influence (1.0 = full effect).
+            prompt: Text prompt describing the image to generate.
+            input_image: Optional PIL Image or file path for Img2Img.
+            strength: Img2Img denoising strength (0.75-0.90 recommended).
+            guidance_scale: Guidance scale (3.5 default for FLUX.1-dev).
+            num_inference_steps: Total diffusion steps.
+            lora_scale: LoRA influence.
+            width: Image width for T2I.
+            height: Image height for T2I.
+            use_lora_trigger: Whether to auto-prepend trigger word 'cool_style'.
 
         Returns:
-            PIL.Image: Graphic poster styled output image.
+            PIL.Image: Generated image.
         """
-        # Always ensure trigger word 'cool_style' is at the front to activate LoRA
-        if prompt and prompt.strip():
-            base_prompt = prompt.strip()
-            if "cool_style" not in base_prompt:
-                final_prompt = f"cool_style, {base_prompt}"
-            else:
-                final_prompt = base_prompt
+        base_prompt = prompt.strip() if (prompt and prompt.strip()) else "a cat and a dog fighting in an epic dramatic poster style"
+
+        if use_lora_trigger and "cool_style" not in base_prompt:
+            final_prompt = f"cool_style, {base_prompt}"
         else:
-            final_prompt = DEFAULT_POSTER_PROMPT
-
-        if isinstance(input_image, str):
-            if not os.path.exists(input_image):
-                raise FileNotFoundError(f"Input image file '{input_image}' does not exist.")
-            image = Image.open(input_image).convert("RGB")
-        else:
-            image = input_image.convert("RGB")
-
-        image = image.resize((512, 512))
-
-        print(f"Generating poster with prompt: '{final_prompt[:80]}...'")
-        print(f"  strength={strength} | steps={num_inference_steps} | lora_scale={lora_scale}")
+            final_prompt = base_prompt
 
         with torch.no_grad():
-            output = self.pipe(
-                prompt=final_prompt,
-                image=image,
-                strength=strength,
-                num_inference_steps=num_inference_steps,
-                guidance_scale=guidance_scale,
-                joint_attention_kwargs={"scale": lora_scale},
-            ).images[0]
+            if input_image is not None:
+                # --- Image-to-Image Mode ---
+                if isinstance(input_image, str):
+                    if not os.path.exists(input_image):
+                        raise FileNotFoundError(f"Input image file '{input_image}' does not exist.")
+                    image = Image.open(input_image).convert("RGB")
+                else:
+                    image = input_image.convert("RGB")
+
+                image = image.resize((width, height))
+                print(f"Running Img2Img generation with prompt: '{final_prompt[:80]}...'")
+                print(f"  strength={strength} | steps={num_inference_steps}")
+
+                output = self.img2img_pipe(
+                    prompt=final_prompt,
+                    image=image,
+                    strength=strength,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    joint_attention_kwargs={"scale": lora_scale},
+                ).images[0]
+            else:
+                # --- Text-to-Image Mode (from scratch) ---
+                print(f"Running Text-to-Image generation with prompt: '{final_prompt[:80]}...'")
+                print(f"  steps={num_inference_steps} | size={width}x{height}")
+
+                output = self.t2i_pipe(
+                    prompt=final_prompt,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    width=width,
+                    height=height,
+                    joint_attention_kwargs={"scale": lora_scale},
+                ).images[0]
 
         return output
 
+    def convert(self, *args, **kwargs) -> Image.Image:
+        """Alias for generate() for backward compatibility."""
+        return self.generate(*args, **kwargs)
+
 
 if __name__ == "__main__":
-    print("FLUX Cool Poster Img2Img Generator")
+    print("FLUX Generator ready (Text-to-Image and Image-to-Image)")
     print("Usage:")
     print("  generator = PosterGenerator()")
-    print("  output = generator.convert('photo.jpg')")
-    print("  output.save('poster.jpg')")
+    print("  # Text-to-Image:")
+    print("  img = generator.generate(prompt='a cat and a dog fighting')")
+    print("  # Image-to-Image:")
+    print("  img = generator.generate(prompt='cool poster', input_image='my_photo.jpg')")
