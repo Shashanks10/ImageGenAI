@@ -46,7 +46,7 @@ class PosterGenerator:
 
     def __init__(
         self,
-        base_model_name: str = "black-forest-labs/FLUX.1-schnell",
+        base_model_name: str = "black-forest-labs/FLUX.1-dev",
         lora_repo_id: str = "AIGCDuckBoss/fluxlora_cool-posters",
         weight_name: str = "flux_cool_poster.safetensors",
         device: str = None,
@@ -64,6 +64,11 @@ class PosterGenerator:
         )
 
         hf_token = os.environ.get("HF_TOKEN", None)
+        if not hf_token:
+            raise RuntimeError(
+                "HF_TOKEN environment variable is not set.\n"
+                "FLUX.1-dev is a gated model. Run: export HF_TOKEN='your_hf_token_here'"
+            )
 
         # -------------------------------------------------------
         # Step 1: Load FLUX Transformer in 4-bit nf4 (saves VRAM)
@@ -166,8 +171,8 @@ class PosterGenerator:
         input_image: Image.Image | str,
         prompt: str = None,
         strength: float = 0.85,
-        guidance_scale: float = 3.5,
-        num_inference_steps: int = 28,
+        guidance_scale: float = 3.5,   # FLUX.1-dev supports CFG (unlike schnell which needs 0.0)
+        num_inference_steps: int = 25, # dev works well at 20-30 steps
         lora_scale: float = 1.0,
     ) -> Image.Image:
         """
