@@ -28,7 +28,7 @@ except Exception:
 
 import torch
 from PIL import Image
-from diffusers import FluxImg2ImgPipeline, FluxTransformer2DModel, AutoPipelineForImage2Image
+from diffusers import FluxPipeline, FluxImg2ImgPipeline, FluxTransformer2DModel, AutoPipelineForImage2Image
 from transformers import BitsAndBytesConfig
 
 # Cool Poster LoRA trigger word — MUST be in every prompt to activate the style
