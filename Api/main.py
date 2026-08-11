@@ -18,7 +18,14 @@ app.include_router(router)
 
 @app.get("/")
 def root():
-    return {"message": "FutureGenImage API is running. POST to /generate-poster to convert photos."}
+    return {
+        "message": "FutureGenImage API is running.",
+        "endpoints": {
+            "POST /generate-poster": "Convert photos to poster style or generate poster from prompt",
+            "POST /generate-text": "Generate poster art from text prompt",
+            "POST /generate-normal": "Generate standard image from prompt without trained LoRA data",
+        },
+    }
 
 
 

@@ -60,5 +60,22 @@ class ImageGenService:
         output_image.save(buffer, format="JPEG")
         return buffer.getvalue()
 
+    def process_normal_text_prompt(self, prompt: str, width: int = 512, height: int = 512) -> bytes:
+        if self.generator is None:
+            self.initialize()
+
+        output_image = self.generator.generate(
+            prompt=prompt,
+            input_image=None,
+            width=width,
+            height=height,
+            use_lora=False,
+            use_lora_trigger=False,
+        )
+
+        buffer = BytesIO()
+        output_image.save(buffer, format="JPEG")
+        return buffer.getvalue()
+
 
 service_instance = ImageGenService()

@@ -174,6 +174,7 @@ class PosterGenerator:
         width: int = 512,
         height: int = 512,
         use_lora_trigger: bool = True,
+        use_lora: bool = True,
     ) -> Image.Image:
         """
         Generates an image using FLUX.1.
@@ -190,16 +191,19 @@ class PosterGenerator:
             width: Image width for T2I.
             height: Image height for T2I.
             use_lora_trigger: Whether to auto-prepend trigger word 'cool_style'.
+            use_lora: Whether to apply LoRA / trained style data. Set False for normal images.
 
         Returns:
             PIL.Image: Generated image.
         """
         base_prompt = prompt.strip() if (prompt and prompt.strip()) else "a cat and a dog fighting in an epic dramatic poster style"
 
-        if use_lora_trigger and "cool_style" not in base_prompt:
+        if use_lora and use_lora_trigger and "cool_style" not in base_prompt:
             final_prompt = f"cool_style, {base_prompt}"
         else:
             final_prompt = base_prompt
+
+        effective_lora_scale = lora_scale if use_lora else 0.0
 
         with torch.no_grad():
             if input_image is not None:
@@ -212,30 +216,50 @@ class PosterGenerator:
                     image = input_image.convert("RGB")
 
                 image = image.resize((width, height))
-                print(f"Running Img2Img generation with prompt: '{final_prompt[:80]}...'")
+                print(f"Running Img2Img generation (use_lora={use_lora}) with prompt: '{final_prompt[:80]}...'")
                 print(f"  strength={strength} | steps={num_inference_steps}")
 
-                output = self.img2img_pipe(
-                    prompt=final_prompt,
-                    image=image,
-                    strength=strength,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    joint_attention_kwargs={"scale": lora_scale},
-                ).images[0]
+                if not use_lora and hasattr(self.img2img_pipe, "disable_lora"):
+                    with self.img2img_pipe.disable_lora():
+                        output = self.img2img_pipe(
+                            prompt=final_prompt,
+                            image=image,
+                            strength=strength,
+                            num_inference_steps=num_inference_steps,
+                            guidance_scale=guidance_scale,
+                        ).images[0]
+                else:
+                    output = self.img2img_pipe(
+                        prompt=final_prompt,
+                        image=image,
+                        strength=strength,
+                        num_inference_steps=num_inference_steps,
+                        guidance_scale=guidance_scale,
+                        joint_attention_kwargs={"scale": effective_lora_scale},
+                    ).images[0]
             else:
                 # --- Text-to-Image Mode (from scratch) ---
-                print(f"Running Text-to-Image generation with prompt: '{final_prompt[:80]}...'")
+                print(f"Running Text-to-Image generation (use_lora={use_lora}) with prompt: '{final_prompt[:80]}...'")
                 print(f"  steps={num_inference_steps} | size={width}x{height}")
 
-                output = self.t2i_pipe(
-                    prompt=final_prompt,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    width=width,
-                    height=height,
-                    joint_attention_kwargs={"scale": lora_scale},
-                ).images[0]
+                if not use_lora and hasattr(self.t2i_pipe, "disable_lora"):
+                    with self.t2i_pipe.disable_lora():
+                        output = self.t2i_pipe(
+                            prompt=final_prompt,
+                            num_inference_steps=num_inference_steps,
+                            guidance_scale=guidance_scale,
+                            width=width,
+                            height=height,
+                        ).images[0]
+                else:
+                    output = self.t2i_pipe(
+                        prompt=final_prompt,
+                        num_inference_steps=num_inference_steps,
+                        guidance_scale=guidance_scale,
+                        width=width,
+                        height=height,
+                        joint_attention_kwargs={"scale": effective_lora_scale},
+                    ).images[0]
 
         return output
 

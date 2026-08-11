@@ -58,3 +58,27 @@ async def generate_text_image(
 
     return Response(content=output_bytes, media_type="image/jpeg")
 
+
+@router.post("/generate-normal")
+async def generate_normal_image(
+    prompt: str = Form("a cute golden retriever sitting in a sunny field"),
+    width: int = Form(512),
+    height: int = Form(512),
+):
+    """
+    Normal Text-to-Image generation endpoint.
+    Generate standard images directly from prompt without trained LoRA data or triggers!
+    Example: 'a cute golden retriever sitting in a sunny field'
+    """
+    if not prompt or not prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt parameter is required.")
+
+    output_bytes = service_instance.process_normal_text_prompt(
+        prompt=prompt.strip(),
+        width=width,
+        height=height,
+    )
+
+    return Response(content=output_bytes, media_type="image/jpeg")
+
+
