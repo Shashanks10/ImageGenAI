@@ -26,14 +26,27 @@ except ImportError:
     except ImportError:
         PosterGenerator = None
 
+try:
+    from Inference.generate_normal import NormalGenerator
+except ImportError:
+    try:
+        from generate_normal import NormalGenerator
+    except ImportError:
+        NormalGenerator = None
+
 
 class ImageGenService:
     def __init__(self):
         self.generator = None
+        self.normal_generator = None
 
     def initialize(self):
         if self.generator is None and PosterGenerator is not None:
             self.generator = PosterGenerator()
+
+    def initialize_normal(self):
+        if self.normal_generator is None and NormalGenerator is not None:
+            self.normal_generator = NormalGenerator()
 
     def process_image(self, image_bytes: bytes = None, prompt: str = None, strength: float = 0.85) -> bytes:
         if self.generator is None:
@@ -61,17 +74,26 @@ class ImageGenService:
         return buffer.getvalue()
 
     def process_normal_text_prompt(self, prompt: str, width: int = 512, height: int = 512) -> bytes:
-        if self.generator is None:
-            self.initialize()
+        if self.normal_generator is None:
+            self.initialize_normal()
 
-        output_image = self.generator.generate(
-            prompt=prompt,
-            input_image=None,
-            width=width,
-            height=height,
-            use_lora=False,
-            use_lora_trigger=False,
-        )
+        if self.normal_generator is not None:
+            output_image = self.normal_generator.generate(
+                prompt=prompt,
+                width=width,
+                height=height,
+            )
+        else:
+            if self.generator is None:
+                self.initialize()
+            output_image = self.generator.generate(
+                prompt=prompt,
+                input_image=None,
+                width=width,
+                height=height,
+                use_lora=False,
+                use_lora_trigger=False,
+            )
 
         buffer = BytesIO()
         output_image.save(buffer, format="JPEG")
