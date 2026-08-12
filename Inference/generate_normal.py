@@ -1,8 +1,8 @@
 """
 generate_normal.py
 
-Inference script for standard image generation using Stable Diffusion 3.5 Medium.
-Uses stabilityai/stable-diffusion-3.5-medium with CPU offloading and fallbacks.
+Inference script for FLUX.2-dev standard image generation without LoRA.
+Uses black-forest-labs/FLUX.2-dev with CPU offloading and fallbacks.
 """
 
 import os
@@ -18,17 +18,21 @@ except Exception:
 
 import torch
 from PIL import Image
-from diffusers import StableDiffusion3Pipeline, FluxPipeline
+from diffusers import FluxPipeline
+try:
+    from diffusers import Flux2Pipeline
+except ImportError:
+    Flux2Pipeline = None
 
 
 class NormalGenerator:
     """
-    Standard Text-to-Image generation pipeline using Stable Diffusion 3.5 Medium.
+    Standard Text-to-Image generation pipeline using FLUX.2-dev.
     """
 
     def __init__(
         self,
-        base_model_name: str = "stabilityai/stable-diffusion-3.5-medium",
+        base_model_name: str = "black-forest-labs/FLUX.2-dev",
         device: str = None,
     ):
         if device is None:
@@ -36,26 +40,33 @@ class NormalGenerator:
         else:
             self.device = device
 
-        print(f"Initializing NormalGenerator (SD 3.5 Medium) on device: {self.device}")
+        print(f"Initializing NormalGenerator (FLUX.2-dev) on device: {self.device}")
 
         dtype = torch.bfloat16 if (self.device == "cuda" and torch.cuda.is_bf16_supported()) else (
             torch.float16 if self.device == "cuda" else torch.float32
         )
 
         hf_token = os.environ.get("HF_TOKEN", None)
+        if not hf_token:
+            raise RuntimeError(
+                "HF_TOKEN environment variable is not set.\n"
+                "FLUX.2-dev is a gated model. Run: export HF_TOKEN='your_hf_token_here'"
+            )
+
+        pipeline_cls = Flux2Pipeline if Flux2Pipeline is not None else FluxPipeline
 
         try:
-            print(f"Loading {base_model_name} with StableDiffusion3Pipeline...")
-            self.pipe = StableDiffusion3Pipeline.from_pretrained(
+            print(f"Loading {base_model_name} with {pipeline_cls.__name__}...")
+            self.pipe = pipeline_cls.from_pretrained(
                 base_model_name,
                 torch_dtype=dtype,
                 token=hf_token,
             )
         except Exception as e:
-            print(f"Warning: Loading {base_model_name} failed ({e}). Trying SD 3.5 Large fallback...")
+            print(f"Warning: Loading {base_model_name} with {pipeline_cls.__name__} failed ({e}). Trying FluxPipeline fallback...")
             try:
-                self.pipe = StableDiffusion3Pipeline.from_pretrained(
-                    "stabilityai/stable-diffusion-3.5-large",
+                self.pipe = FluxPipeline.from_pretrained(
+                    base_model_name,
                     torch_dtype=dtype,
                     token=hf_token,
                 )
@@ -69,7 +80,7 @@ class NormalGenerator:
 
         if self.device == "cuda":
             if hasattr(self.pipe, "enable_model_cpu_offload"):
-                print("Enabling model CPU offloading for SD 3.5 VRAM optimization...")
+                print("Enabling model CPU offloading for FLUX.2-dev VRAM optimization...")
                 self.pipe.enable_model_cpu_offload()
             else:
                 self.pipe.to(self.device)
@@ -78,20 +89,20 @@ class NormalGenerator:
         else:
             self.pipe.to("cpu")
 
-        print("NormalGenerator (SD 3.5 Medium) ready!\n")
+        print("NormalGenerator (FLUX.2-dev) ready!\n")
 
     def generate(
         self,
         prompt: str,
-        guidance_scale: float = 7.0,
-        num_inference_steps: int = 28,
+        guidance_scale: float = 4.0,
+        num_inference_steps: int = 25,
         width: int = 512,
         height: int = 512,
     ) -> Image.Image:
-        base_prompt = prompt.strip() if (prompt and prompt.strip()) else "a high quality detailed photo"
+        base_prompt = prompt.strip() if (prompt and prompt.strip()) else "a beautiful high quality photo"
 
         with torch.no_grad():
-            print(f"Running SD 3.5 Medium Text-to-Image generation with prompt: '{base_prompt[:80]}...'")
+            print(f"Running FLUX.2-dev Text-to-Image generation with prompt: '{base_prompt[:80]}...'")
             print(f"  steps={num_inference_steps} | size={width}x{height}")
 
             output = self.pipe(
